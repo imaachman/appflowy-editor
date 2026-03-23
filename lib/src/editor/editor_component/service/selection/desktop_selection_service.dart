@@ -6,6 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+enum SelectionDragMode {
+  character,
+  word,
+  block,
+}
+
 class DesktopSelectionServiceWidget extends StatefulWidget {
   const DesktopSelectionServiceWidget({
     super.key,
@@ -53,6 +59,9 @@ class _DesktopSelectionServiceWidgetState
 
   bool _isDraggingSelection = false;
   Offset? _lastPanOffset;
+
+  SelectionDragMode _dragMode = SelectionDragMode.character;
+  Selection? _baseSelection;
 
   OverlayEntry? _dropTargetEntry;
 
@@ -158,6 +167,8 @@ class _DesktopSelectionServiceWidgetState
     _panStartScrollDy = null;
     _panStartPosition = null;
     _lastPanOffset = null;
+    _dragMode = SelectionDragMode.character;
+    _baseSelection = null;
   }
 
   void _clearContextMenu() {
@@ -267,7 +278,7 @@ class _DesktopSelectionServiceWidgetState
     }
 
     final position = selectable.getPositionInOffset(offset);
-    final Selection? selection;
+    Selection? selection;
 
     if (HardwareKeyboard.instance.isShiftPressed && _panStartPosition != null) {
       selection = Selection(start: _panStartPosition!, end: position);
@@ -280,6 +291,8 @@ class _DesktopSelectionServiceWidgetState
       _panStartPosition = position;
     }
 
+    _dragMode = SelectionDragMode.character;
+    _baseSelection = null;
     updateSelection(selection);
   }
 
@@ -300,6 +313,8 @@ class _DesktopSelectionServiceWidgetState
 
       return;
     }
+    _dragMode = SelectionDragMode.word;
+    _baseSelection = selection;
     updateSelection(selection);
   }
 
@@ -323,6 +338,8 @@ class _DesktopSelectionServiceWidgetState
       start: selectable.start(),
       end: selectable.end(),
     );
+    _dragMode = SelectionDragMode.block;
+    _baseSelection = selection;
     updateSelection(selection);
   }
 
@@ -374,7 +391,9 @@ class _DesktopSelectionServiceWidgetState
   }
 
   void _onPanStart(DragStartDetails details) {
-    clearSelection();
+    if (_dragMode == SelectionDragMode.character) {
+      clearSelection();
+    }
 
     final canPanStart = _interceptors.every(
       (interceptor) => interceptor.canPanStart?.call(details) ?? true,
@@ -457,15 +476,55 @@ class _DesktopSelectionServiceWidgetState
       return;
     }
 
-    final Selection selection = Selection(
-      start: _panStartPosition!,
-      end: selectable
-          .getSelectionInRange(
-            panStartOffset,
-            panEndOffset,
-          )
-          .end,
-    );
+    Selection selection;
+
+    if (_dragMode == SelectionDragMode.word) {
+      final wordBoundary = selectable.getWordBoundaryInOffset(panEndOffset);
+      if (wordBoundary == null) {
+        return;
+      }
+      if (_baseSelection == null) {
+        selection = wordBoundary;
+      } else {
+        final start = _baseSelection!.normalized.start;
+        final end = _baseSelection!.normalized.end;
+
+        if (wordBoundary.end < start) {
+          selection = Selection(start: end, end: wordBoundary.start);
+        } else if (wordBoundary.start > end) {
+          selection = Selection(start: start, end: wordBoundary.end);
+        } else {
+          selection = _baseSelection!;
+        }
+      }
+    } else if (_dragMode == SelectionDragMode.block) {
+      if (_baseSelection == null) {
+        selection = Selection(start: selectable.start(), end: selectable.end());
+      } else {
+        final start = _baseSelection!.normalized.start;
+        final end = _baseSelection!.normalized.end;
+        final blockStart = selectable.start();
+        final blockEnd = selectable.end();
+
+        if (blockEnd < start) {
+          selection = Selection(start: end, end: blockStart);
+        } else if (blockStart > end) {
+          selection = Selection(start: start, end: blockEnd);
+        } else {
+          selection = _baseSelection!;
+        }
+      }
+    } else {
+      selection = Selection(
+        start: _panStartPosition!,
+        end: selectable
+            .getSelectionInRange(
+              panStartOffset,
+              panEndOffset,
+            )
+            .end,
+      );
+    }
 
     if (selection != currentSelection.value) {
       updateSelection(selection);

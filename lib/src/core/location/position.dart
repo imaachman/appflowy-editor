@@ -45,6 +45,24 @@ class Position {
     );
   }
 
+  bool operator <(Position other) {
+    if (path < other.path) return true;
+    if (path > other.path) return false;
+
+    return offset < other.offset;
+  }
+
+  bool operator >(Position other) {
+    if (path > other.path) return true;
+    if (path < other.path) return false;
+
+    return offset > other.offset;
+  }
+
+  bool operator <=(Position other) => this < other || this == other;
+
+  bool operator >=(Position other) => this > other || this == other;
+
   Map<String, dynamic> toJson() {
     return {
       'path': path,
